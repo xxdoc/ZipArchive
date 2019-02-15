@@ -6,7 +6,7 @@ BEGIN
   DataSourceBehavior  = 0  'vbNone
   MTSTransactionMode  = 0  'NotAnMTSObject
 END
-Attribute VB_Name = "cMemoryStream"
+Attribute VB_Name = "cBufferStream"
 Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = True
 Attribute VB_PredeclaredId = False
@@ -28,7 +28,8 @@ Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" (Destination
 ' Constants and member variables
 '=========================================================================
 
-Private m_baBuffer()            As Byte
+Private m_lBufferPtr            As Long
+Private m_lBufferSize           As Long
 Private m_lPosition             As Long
 Private m_lSize                 As Long
 
@@ -36,20 +37,25 @@ Private m_lSize                 As Long
 ' Properties
 '=========================================================================
 
-Property Get Contents() As Byte()
-    If m_lSize > 0 Then
-        Contents = m_baBuffer
-        ReDim Preserve Contents(0 To m_lSize - 1) As Byte
-    Else
-        Contents = vbNullString
-    End If
+Property Get Size() As Long
+    Size = m_lSize
 End Property
 
-Property Let Contents(baValue() As Byte)
-    m_baBuffer = baValue
+'=========================================================================
+' Methods
+'=========================================================================
+
+Public Sub Init(ByVal lBufferPtr As Long, ByVal lBufferSize As Long)
+    m_lBufferPtr = lBufferPtr
+    m_lBufferSize = lBufferSize
     m_lPosition = 0
-    m_lSize = UBound(m_baBuffer) + 1
-End Property
+    m_lSize = 0
+End Sub
+
+Private Function UnsignedAdd(ByVal lUnsignedPtr As Long, ByVal lSignedOffset As Long) As Long
+    '--- note: safely add *signed* offset to *unsigned* ptr for *unsigned* retval w/o overflow in LARGEADDRESSAWARE processes
+    UnsignedAdd = ((lUnsignedPtr Xor &H80000000) + lSignedOffset) Xor &H80000000
+End Function
 
 '=========================================================================
 ' VFS interface
@@ -72,24 +78,16 @@ Public Function VfsReadFile(ByVal lPtr As Long, ByVal lSize As Long) As Long
         lSize = m_lSize - m_lPosition
     End If
     If lSize > 0 Then
-        Call CopyMemory(ByVal lPtr, m_baBuffer(m_lPosition), lSize)
+        Call CopyMemory(ByVal lPtr, ByVal UnsignedAdd(m_lBufferPtr, m_lPosition), lSize)
         m_lPosition = m_lPosition + lSize
     End If
     VfsReadFile = lSize
 End Function
 
 Public Function VfsWriteFile(ByVal lPtr As Long, ByVal lSize As Long) As Long
-    Dim lNewSize            As Long
-    
-    If m_lPosition + lSize > UBound(m_baBuffer) + 1 Then
-        lNewSize = IIf(UBound(m_baBuffer) < 512, 512, UBound(m_baBuffer) + 1)
-        Do While m_lPosition + lSize > lNewSize
-            lNewSize = lNewSize * 2
-        Loop
-        ReDim Preserve m_baBuffer(0 To lNewSize - 1) As Byte
-    End If
+    Debug.Assert m_lPosition + lSize < m_lBufferSize
     If lSize > 0 Then
-        Call CopyMemory(m_baBuffer(m_lPosition), ByVal lPtr, lSize)
+        Call CopyMemory(ByVal UnsignedAdd(m_lBufferPtr, m_lPosition), ByVal lPtr, lSize)
         m_lPosition = m_lPosition + lSize
         If m_lPosition > m_lSize Then
             m_lSize = m_lPosition
@@ -102,10 +100,3 @@ Public Sub VfsSetEndOfFile(sMetaData As String)
     m_lSize = m_lPosition
 End Sub
 
-'=========================================================================
-' Base class events
-'=========================================================================
-
-Private Sub Class_Initialize()
-    m_baBuffer = vbNullString
-End Sub

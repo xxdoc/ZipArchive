@@ -4,11 +4,19 @@ Begin VB.Form Form1
    ClientHeight    =   3804
    ClientLeft      =   108
    ClientTop       =   456
-   ClientWidth     =   8604
+   ClientWidth     =   9936
    LinkTopic       =   "Form1"
    ScaleHeight     =   3804
-   ScaleWidth      =   8604
+   ScaleWidth      =   9936
    StartUpPosition =   3  'Windows Default
+   Begin VB.CommandButton Command7 
+      Caption         =   "Command7"
+      Height          =   432
+      Left            =   8400
+      TabIndex        =   7
+      Top             =   504
+      Width           =   1356
+   End
    Begin VB.CommandButton Command6 
       Caption         =   "Command6"
       Height          =   432
@@ -167,6 +175,7 @@ Private Sub Command5_Click()
     Dim bResult         As Boolean
     Dim sLastError      As String
     Dim baOutput()      As Byte
+    Dim oBuffer         As cBufferStream
 
     ChDrive "D:"
     ChDir "D:\TEMP\Unzip\SQL-Server-First-Responder-Kit-2017-02"
@@ -176,9 +185,12 @@ Private Sub Command5_Click()
     With m_oZip
         .AddFromFolder ".\*.sql", Recursive:=True, TargetFolder:="Kit", IncludeEmptyFolders:=True
 '        .AddFromFolder "D:\TEMP\Unzip\Empty\*.*", Recursive:=True, TargetFolder:="Kit", IncludeEmptyFolders:=True
-        bResult = .CompressArchive(baOutput)
+        ReDim baOutput(0 To 10000000) As Byte
+        Set oBuffer = New cBufferStream
+        oBuffer.Init VarPtr(baOutput(0)), UBound(baOutput) + 1
+        bResult = .CompressArchive(oBuffer)
         bResult = .CompressArchive("D:\TEMP\aaa3.zip")
-        Debug.Assert FileLen("D:\TEMP\aaa3.zip") = UBound(baOutput) + 1
+        Debug.Assert FileLen("D:\TEMP\aaa3.zip") = oBuffer.Size
         sLastError = .LastError
     End With
     Set m_oZip = Nothing
@@ -199,9 +211,29 @@ Private Sub Command6_Click()
         bResult = .Extract(baOutput, 1)
         WriteBinaryFile "D:\temp\report.pdf", baOutput
         sLastError = .LastError
+        labProgress.Caption = IIf(bResult, "Done. ", sLastError & ". ") & Format(Timer - dblTimer, "0.000") & " elapsed"
+        dblTimer = Timer
+        Debug.Print "Size=" & UBound(baOutput) + 1 & ", CRC32=0x" & Hex$(.CalcCrc32Array(baOutput)) & ", Elapsed=" & Format$(Timer - dblTimer, "0.000")
     End With
     Set m_oZip = Nothing
-    labProgress.Caption = IIf(bResult, "Done. ", sLastError & ". ") & Format(Timer - dblTimer, "0.000") & " elapsed"
+End Sub
+
+Private Sub Command7_Click()
+    Dim baBuffer()      As Byte
+    Dim sCompressed     As String
+    Dim baOutput()      As Byte
+    
+    baBuffer = ReadBinaryFile("D:\TEMP\area41.pdf")
+    With New cZipArchive
+        If Not .DeflateBase64(baBuffer, sCompressed) Then
+            MsgBox .LastError, vbExclamation
+        End If
+        Debug.Print UBound(baBuffer) & "->" & Len(sCompressed), Timer
+        If Not .InflateBase64(sCompressed, baOutput) Then
+            MsgBox .LastError, vbExclamation
+        End If
+    End With
+    WriteBinaryFile "d:\temp\aaa.pdf", baOutput
 End Sub
 
 Private Sub m_oExtractInMemory_BeforeExtract(ByVal FileIdx As Long, File As Variant, SkipFile As Boolean, Cancel As Boolean)
